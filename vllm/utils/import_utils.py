@@ -512,6 +512,17 @@ def has_nixl_ep() -> bool:
     return _has_module("nixl_ep")
 
 
+def has_nixl_ep_v2() -> bool:
+    """Whether `nixl_ep_v2` is importable. Its extension always links NIXL.
+
+    Returns:
+        True if `nixl_ep_v2` imports; False if it is missing or fails to
+        import (logged as a warning).
+
+    """
+    return _has_module("nixl_ep_v2")
+
+
 def has_moonep() -> bool:
     """Whether the optional `moonep` package is available."""
     return _has_module("moonep")
