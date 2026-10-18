@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 from collections.abc import Callable
 
-import nixl_ep_v2
 import torch
+from nixl.runtime import ep
 
 import vllm.model_executor.layers.fused_moe.modular_kernel as mk
 from vllm.forward_context import get_forward_context
@@ -21,7 +21,7 @@ from vllm.utils.math_utils import cdiv, next_power_of_2, round_up
 
 
 class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
-    """Prepare/Finalize on the NIXL EP v2 (nixl_ep_v2) ElasticBuffer.
+    """Prepare/Finalize on the NIXL EP v2 (nixl.runtime.ep) ElasticBuffer.
 
     The receive layout is fixed per process:
       - use_cudagraph=True: every call takes the padded layout, with no CPU
@@ -73,7 +73,7 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
 
     def __init__(
         self,
-        buffer: nixl_ep_v2.ElasticBuffer,
+        buffer: ep.ElasticBuffer,
         num_dispatchers: int,
         rank_expert_offset: int,
         num_sms: int,
@@ -89,7 +89,7 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
         self.use_cudagraph = use_cudagraph
         self.sp_size = sp_size
         self.expand = expand
-        self.handle: nixl_ep_v2.EPHandle | None = None
+        self.handle: ep.EPHandle | None = None
         # arange(num_local_experts) + rank_expert_offset, built on first use.
         self._expert_ids: torch.Tensor | None = None
 
@@ -98,7 +98,7 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
         return mk.FusedMoEActivationFormat.Standard
 
     def topk_indices_dtype(self) -> torch.dtype | None:
-        return nixl_ep_v2.topk_idx_t
+        return ep.topk_idx_t
 
     def max_num_tokens_per_rank(self) -> int | None:
         return None
@@ -142,7 +142,7 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
         x: torch.Tensor | tuple[torch.Tensor, torch.Tensor | None] = a1
         quantize_after = False
         if quant_config.quant_dtype == "nvfp4":
-            # The fork dispatches BF16 or FP8 only, so NVFP4 is quantized after
+            # nixl_ep_v2 dispatches BF16 or FP8 only, so NVFP4 is quantized after
             # receive, as deepep_v2 does.
             quantize_after = not defer_input_quant
         elif quant_config.quant_dtype is not None:
@@ -188,7 +188,7 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
         recv_x: torch.Tensor | tuple[torch.Tensor, torch.Tensor],
         recv_topk_idx: torch.Tensor | None,
         recv_topk_weights: torch.Tensor,
-        handle: nixl_ep_v2.EPHandle,
+        handle: ep.EPHandle,
         post_quant_config: FusedMoEQuantConfig | None,
     ) -> mk.PrepareResultType:
         expert_x, expert_x_scale = (
@@ -202,7 +202,7 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
             if self._expert_ids is None:
                 self._expert_ids = (
                     torch.arange(
-                        len(counts), dtype=nixl_ep_v2.topk_idx_t, device=expert_x.device
+                        len(counts), dtype=ep.topk_idx_t, device=expert_x.device
                     )
                     + self.rank_expert_offset
                 )
@@ -216,7 +216,7 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
             psum = handle.psum_num_recv_tokens_per_expert
             meta = mk.ExpertTokensMetadata(None, None, psum_recv_per_rank=psum)
             topk_ids = expanded_recv_topk_ids(
-                psum, len(expert_x), self.rank_expert_offset, nixl_ep_v2.topk_idx_t
+                psum, len(expert_x), self.rank_expert_offset, ep.topk_idx_t
             )
             topk_weights = recv_topk_weights.unsqueeze(1)
         else:

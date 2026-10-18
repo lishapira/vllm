@@ -198,7 +198,7 @@ def _nixl_ep_v2_moe_backends(
 )
 @multi_gpu_test(num_gpus=2)
 @pytest.mark.skipif(
-    not has_nixl_ep_v2(), reason="Requires nixl_ep_v2 with the NIXL transport"
+    not has_nixl_ep_v2(), reason="Requires NIXL EP v2 (nixl.runtime.ep)"
 )
 @pytest.mark.skipif(
     not has_flashinfer() or not current_platform.has_device_capability(100),

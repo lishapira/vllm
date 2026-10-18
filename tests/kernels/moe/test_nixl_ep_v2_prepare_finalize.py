@@ -214,7 +214,7 @@ def _launch_nixl_ep_v2_layout(
     expand: bool,
 ) -> None:
     if not has_nixl_ep_v2():
-        pytest.skip("Requires nixl_ep_v2 with the NIXL transport")
+        pytest.skip("Requires NIXL EP v2 (nixl.runtime.ep)")
     if current_platform.device_count() < 2:
         pytest.skip("Requires 2 GPUs")
     if quant == "nvfp4" and not current_platform.has_device_capability(100):
@@ -252,7 +252,7 @@ def test_nixl_ep_v2_expand_knob(
 
     """
     if not has_nixl_ep_v2():
-        pytest.skip("Requires nixl_ep_v2 with the NIXL transport")
+        pytest.skip("Requires NIXL EP v2 (nixl.runtime.ep)")
     from tests.kernels.moe.utils import make_ep_prepare_finalize_with_fake_buffer
 
     class _Buffer:

@@ -513,14 +513,15 @@ def has_nixl_ep() -> bool:
 
 
 def has_nixl_ep_v2() -> bool:
-    """Whether `nixl_ep_v2` is importable. Its extension always links NIXL.
+    """Whether NIXL EP v2 (`nixl.runtime.ep`) is importable.
 
     Returns:
-        True if `nixl_ep_v2` imports; False if it is missing or fails to
-        import (logged as a warning).
+        True if `nixl.runtime.ep` imports; False if it is missing, as in NIXL
+        builds without NIXL EP v2, or fails to import (logged as a warning),
+        for example when it has no extension for this PyTorch version.
 
     """
-    return _has_module("nixl_ep_v2")
+    return _has_module_spec("nixl.runtime.ep") and _has_module("nixl.runtime.ep")
 
 
 def has_moonep() -> bool:

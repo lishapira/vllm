@@ -744,7 +744,7 @@ def _nixl_ep_v2_world_args(
 
 
 class NixlEPV2All2AllManager(All2AllManagerBase):
-    """All2All communication based on NIXL EP v2 (nixl_ep_v2): the
+    """All2All communication based on NIXL EP v2 (nixl.runtime.ep): the
     topology-adaptive EP kernels on NIXL.
 
     One ElasticBuffer per process, sized for the maximum EP size, serves every
@@ -762,8 +762,9 @@ class NixlEPV2All2AllManager(All2AllManagerBase):
 
     def __init__(self, cpu_group, tcp_store_group=None):
         assert has_nixl_ep_v2(), (
-            "nixl_ep_v2 is not available: not installed, failed to import "
-            "(see the warning above) or built without the NIXL transport."
+            "nixl_ep_v2 needs nixl.runtime.ep: install a NIXL build with "
+            "NIXL EP v2 for this PyTorch version (see the warning above if it "
+            "was found but failed to import)."
         )
         # A joining rank would wait for a cohort that never builds the buffer.
         assert not envs.VLLM_ELASTIC_EP_SCALE_UP_LAUNCH, (
@@ -810,8 +811,8 @@ class NixlEPV2All2AllManager(All2AllManagerBase):
             return state.buffer
 
     def _make_state(self, kwargs: dict[str, Any]) -> _NixlEPV2State:
-        from nixl_ep_v2 import ElasticBuffer  # type: ignore[import-not-found]
-        from nixl_ep_v2.utils.nixl_bootstrap import (  # type: ignore[import-not-found]
+        from nixl.runtime.ep import ElasticBuffer  # type: ignore[import-not-found]
+        from nixl.runtime.ep.utils.nixl_bootstrap import (  # type: ignore[import-not-found]
             NixlBootstrap,
         )
 

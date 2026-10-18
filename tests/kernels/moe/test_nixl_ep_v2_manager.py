@@ -97,7 +97,7 @@ def test_nixl_ep_v2_manager(world: int, domain_size: int) -> None:
 
     """
     if not has_nixl_ep_v2():
-        pytest.skip("Requires nixl_ep_v2 with the NIXL transport")
+        pytest.skip("Requires NIXL EP v2 (nixl.runtime.ep)")
     if current_platform.device_count() < world:
         pytest.skip(f"Requires {world} GPUs")
 
@@ -120,7 +120,7 @@ def test_nixl_ep_v2_manager_init_guards(monkeypatch: pytest.MonkeyPatch) -> None
     from vllm.distributed.device_communicators import all2all
 
     monkeypatch.setattr(all2all, "has_nixl_ep_v2", lambda: False)
-    with pytest.raises(AssertionError, match="nixl_ep_v2 is not available"):
+    with pytest.raises(AssertionError, match="nixl_ep_v2 needs nixl.runtime.ep"):
         all2all.NixlEPV2All2AllManager(cpu_group=None)
 
     monkeypatch.setattr(all2all, "has_nixl_ep_v2", lambda: True)
@@ -337,18 +337,18 @@ def test_nixl_ep_v2_buffer_knobs(
 
     """
     if not has_nixl_ep_v2():
-        pytest.skip("Requires nixl_ep_v2 with the NIXL transport")
-    import nixl_ep_v2
+        pytest.skip("Requires NIXL EP v2 (nixl.runtime.ep)")
+    from nixl.runtime import ep
 
     from vllm.distributed.device_communicators.all2all import NixlEPV2All2AllManager
 
     class _Buffer:
-        num_launch_sms = 26  # 096cd8b's kNumLaunchSMs
+        num_launch_sms = 26  # NIXL's default kNumLaunchSMs
 
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    monkeypatch.setattr(nixl_ep_v2, "ElasticBuffer", _Buffer)
+    monkeypatch.setattr(ep, "ElasticBuffer", _Buffer)
     for name in (
         "VLLM_NIXL_EP_V2_PREFER_OVERLAP",
         "VLLM_NIXL_EP_V2_ALLOW_MULTIPLE_REDUCTION",
