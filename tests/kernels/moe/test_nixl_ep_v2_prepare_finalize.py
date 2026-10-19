@@ -61,7 +61,8 @@ def _nixl_ep_v2_layout_worker(
             num_max_tokens_per_rank=16,
             hidden=hidden,
             num_topk=topk,
-            use_fp8_dispatch=quant == "fp8",
+            # As vLLM sizes it: from the layer, not from what the experts take.
+            use_fp8_dispatch=quant in ("fp8", "fp8_deferred"),
             num_local_experts=num_local_experts,
         )
     )
@@ -76,11 +77,13 @@ def _nixl_ep_v2_layout_worker(
     # NVFP4 with a fixed global scale and linear scale factors, so the test
     # can dequantize them.
     gscale = torch.tensor([448.0 * 6.0 / 8.0], device=device)
+    block_fp8 = FusedMoEQuantConfig.make(
+        current_platform.fp8_dtype(), block_shape=[128, 128]
+    )
     quant_config = {
         None: FusedMoEQuantConfig.make(),
-        "fp8": FusedMoEQuantConfig.make(
-            current_platform.fp8_dtype(), block_shape=[128, 128]
-        ),
+        "fp8": block_fp8,
+        "fp8_deferred": block_fp8,
         "nvfp4": FusedMoEQuantConfig.make(
             "nvfp4", a1_gscale=gscale, is_scale_swizzled=False
         ),
@@ -102,7 +105,10 @@ def _nixl_ep_v2_layout_worker(
             None,
             False,
             quant_config,
+            defer_input_quant=quant == "fp8_deferred",
         )
+        if quant == "fp8_deferred":  # the experts quantize their own input
+            assert x.dtype == torch.bfloat16 and x_scale is None
         if quant == "fp8":  # dequantize the 128-wide blocks
             x = x.float().view(len(x), hidden // 128, 128) * x_scale.unsqueeze(-1)
             x = x.view(len(x), hidden)
@@ -164,7 +170,7 @@ def _nixl_ep_v2_layout_worker(
 
 
 @pytest.mark.parametrize("skewed", [False, True])
-@pytest.mark.parametrize("quant", [None, "fp8", "nvfp4"])
+@pytest.mark.parametrize("quant", [None, "fp8", "fp8_deferred", "nvfp4"])
 @pytest.mark.parametrize("use_cudagraph", [False, True])
 def test_nixl_ep_v2_prepare_finalize(
     use_cudagraph: bool, quant: str | None, skewed: bool
@@ -174,7 +180,9 @@ def test_nixl_ep_v2_prepare_finalize(
     Args:
         use_cudagraph: Take the padded layout instead of the exact one.
         quant: None for BF16; "fp8" dispatches block-FP8 activations;
-            "nvfp4" dispatches BF16 and quantizes the received rows.
+            "fp8_deferred" is block FP8 for experts that quantize their own
+            input, so it dispatches BF16; "nvfp4" dispatches BF16 and
+            quantizes the received rows.
         skewed: Route every token to rank 0, so rank 1 receives no rows.
 
     """
@@ -182,7 +190,7 @@ def test_nixl_ep_v2_prepare_finalize(
 
 
 @pytest.mark.parametrize("skewed", [False, True])
-@pytest.mark.parametrize("quant", [None, "fp8", "nvfp4"])
+@pytest.mark.parametrize("quant", [None, "fp8", "fp8_deferred", "nvfp4"])
 def test_nixl_ep_v2_prepare_finalize_expand(quant: str | None, skewed: bool) -> None:
     """Dispatch and combine round-trip tokens in the worst-case expanded
     layout that VLLM_NIXL_EP_V2_EXPAND selects under CUDA graphs.

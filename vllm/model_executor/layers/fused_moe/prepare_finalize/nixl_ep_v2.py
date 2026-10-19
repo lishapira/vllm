@@ -36,10 +36,9 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
       - use_cudagraph=False: every call takes the exact, expanded layout, one
         row per received (token, local expert) pair, grouped by expert.
 
-    Activations are dispatched in BF16, or in block FP8 for block-FP8 layers.
-    NVFP4 layers dispatch BF16 and quantize the received rows, unless the
-    experts quantize their own input. DBO is not supported: there is one
-    handle slot.
+    Block-FP8 layers dispatch block-FP8 activations. Every other layer
+    dispatches BF16, and a quantized one, NVFP4 included, quantizes the
+    received rows. Experts that quantize their own input get BF16 rows.
 
     Args:
         buffer: The process's ElasticBuffer, from the all2all manager.
@@ -140,23 +139,21 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
             a1 = a1 * topk_weights.to(a1.dtype)
 
         x: torch.Tensor | tuple[torch.Tensor, torch.Tensor | None] = a1
-        quantize_after = False
-        if quant_config.quant_dtype == "nvfp4":
-            # nixl_ep_v2 dispatches BF16 or FP8 only, so NVFP4 is quantized after
-            # receive, as deepep_v2 does.
-            quantize_after = not defer_input_quant
-        elif quant_config.quant_dtype is not None:
-            # Weight-only schemes have no quant_dtype and dispatch BF16.
-            if (
-                not (quant_config.use_fp8_w8a8 and quant_config.is_block_quantized)
-                or defer_input_quant
-            ):
-                raise NotImplementedError(
-                    "nixl_ep_v2 dispatches BF16, block-FP8 or NVFP4 activations "
-                    f"only, got quant_dtype={quant_config.quant_dtype}, "
-                    f"block_shape={quant_config.block_shape}, "
-                    f"defer_input_quant={defer_input_quant}"
-                )
+        # nixl_ep_v2 dispatches BF16 or block FP8 only. Weight-only schemes have
+        # no quant_dtype.
+        # TODO: dispatch MXFP8 and per-tensor FP8 quantized instead of BF16, for
+        # half the dispatch bytes.
+        fp8_dispatch = (
+            quant_config.use_fp8_w8a8
+            and quant_config.is_block_quantized
+            and not defer_input_quant
+        )
+        quantize_after = (
+            quant_config.quant_dtype is not None
+            and not fp8_dispatch
+            and not defer_input_quant
+        )
+        if fp8_dispatch:
             x = moe_kernel_quantize_input(
                 a1,
                 quant_config.a1_scale,
@@ -229,13 +226,20 @@ class NixlEPV2PrepareAndFinalize(mk.FusedMoEPrepareAndFinalizeModular):
             )
             topk_weights = recv_topk_weights
 
+        # TODO: under CUDA graphs, take the dynamic per-tensor scale without the
+        # uninitialized padding rows, e.g. by limiting it to the received rows
+        # or by zeroing the padding first.
         if post_quant_config is not None and expert_x.numel() != 0:
             expert_x, expert_x_scale = moe_kernel_quantize_input(
                 expert_x,
-                post_quant_config.a1_gscale,
+                post_quant_config.a1_gscale
+                if post_quant_config.use_nvfp4_w4a4
+                else post_quant_config.a1_scale,
                 quant_dtype=post_quant_config.quant_dtype,
-                per_act_token_quant=False,
+                per_act_token_quant=post_quant_config.per_act_token_quant,
+                block_shape=post_quant_config.block_shape,
                 is_scale_swizzled=post_quant_config.is_scale_swizzled,
+                mx_alignment=post_quant_config.mx_alignment,
             )
 
         return expert_x, expert_x_scale, meta, topk_ids, topk_weights
